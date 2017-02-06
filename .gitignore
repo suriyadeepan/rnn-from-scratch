@@ -4,3 +4,4 @@
 *.npy
 *.pkl
 __pycache__
+ckpt/
