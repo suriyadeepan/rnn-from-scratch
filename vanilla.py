@@ -98,18 +98,18 @@ if __name__ == '__main__':
         # training session
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
-            xs, ys = train_set.__next__()
             train_loss = 0
             try:
                 for i in range(epochs):
-                    for j in range(1000):
+                    for j in range(10000):
+                        xs, ys = train_set.__next__()
                         _, train_loss_ = sess.run([train_op, loss], feed_dict = {
                                 xs_ : xs.reshape([seqlen]),
                                 ys_ : ys.reshape([seqlen]),
                                 init_state : np.zeros([hsize])
                             })
                         train_loss += train_loss_
-                    print('[{}] loss : {}'.format(i,train_loss/1000))
+                    print('[{}] loss : {}'.format(i,train_loss/10000))
                     train_loss = 0
             except KeyboardInterrupt:
                 print('interrupted by user at ' + str(i))
@@ -139,7 +139,7 @@ if __name__ == '__main__':
             state = None
             num_words = args['num_words'] if args['num_words'] else 111
             # enter the loop
-            for i in range(args['num_words']):
+            for i in range(num_words):
                 if state:
                     feed_dict = {xs_ : [current_word], init_state : state_}
                 else:
