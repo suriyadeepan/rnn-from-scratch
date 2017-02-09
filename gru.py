@@ -8,7 +8,7 @@ import random
 import argparse
 import sys
 
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 
 class GRU_rnn():
 
@@ -34,7 +34,29 @@ class GRU_rnn():
             #
             # initial hidden state
             init_state = tf.placeholder(shape=[None, state_size], dtype=tf.float32, name='initial_state')
-            #
+            # initializer
+            xav_init = tf.contrib.layers.xavier_initializer
+            # params
+            W = tf.get_variable('W', shape=[3, self.state_size, self.state_size], initializer=xav_init())
+            U = tf.get_variable('U', shape=[3, self.state_size, self.state_size], initializer=xav_init())
+            b = tf.get_variable('b', shape=[self.state_size], initializer=tf.constant_initializer(0.))
+            ####
+            # step - GRU
+            def step(st_1, x):
+                ####
+                # GATES
+                #
+                #  update gate
+                z = tf.sigmoid(tf.matmul(x,U[0]) + tf.matmul(st_1,W[0]))
+                #  reset gate
+                r = tf.sigmoid(tf.matmul(x,U[1]) + tf.matmul(st_1,W[1]))
+                #  intermediate
+                h = tf.tanh(tf.matmul(x,U[2]) + tf.matmul( (r*st_1),W[1]))
+                ###
+                # new state
+                st = (1-z)*h + (z*st_1)
+                return st
+            ###
             # here comes the scan operation; wake up!
             #   tf.scan(fn, elems, initializer)
             states = tf.scan(step, 
@@ -43,24 +65,27 @@ class GRU_rnn():
             #
             # predictions
             V = tf.get_variable('V', shape=[state_size, num_classes], 
-                                initializer=tf.contrib.layers.xavier_initializer())
+                                initializer=xav_init())
             bo = tf.get_variable('bo', shape=[num_classes], 
                                  initializer=tf.constant_initializer(0.))
             ####
+            # transpose
+            states = tf.transpose(states, [1,0,2])
+            #st_shp = tf.shape(states)
             # flatten states to 2d matrix for matmult with V
-            st_shp = tf.shape(states)
-            states_reshaped = tf.reshape(states, [st_shp[0] * st_shp[1], st_shp[2]])
+            #states_reshaped = tf.reshape(states, [st_shp[0] * st_shp[1], st_shp[2]])
+            states_reshaped = tf.reshape(states, [-1, state_size])
             logits = tf.matmul(states_reshaped, V) + bo
             # 
             # get last state
             last_state = states[-1]
             # predictions
-            predictions = tf.reshape(tf.nn.softmax(logits), [st_shp[1], st_shp[0], num_classes])
+            predictions = tf.nn.softmax(logits) 
             #
             # optimization
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys_)
             loss = tf.reduce_mean(losses)
-            train_op = tf.train.AdamOptimizer(learning_rate=0.1).minimize(loss)
+            train_op = tf.train.AdagradOptimizer(learning_rate=0.1).minimize(loss)
             #
             # expose symbols
             self.xs_ = xs_
@@ -70,28 +95,6 @@ class GRU_rnn():
             self.predictions = predictions
             self.last_state = last_state
             self.init_state = init_state
-        ####
-        # step - GRU
-        def step(st_1, x):
-            # initializer
-            xav_init = tf.contrib.layers.xavier_initializer
-            # params
-            W = tf.get_variable('W', shape=[3, self.state_size, self.state_size], initializer=xav_init())
-            U = tf.get_variable('U', shape=[3, self.state_size, self.state_size], initializer=xav_init())
-            b = tf.get_variable('b', shape=[self.state_size], initializer=tf.constant_initializer(0.))
-            ####
-            # GATES
-            #
-            #  update gate
-            z = tf.sigmoid(tf.matmul(x,U[0]) + tf.matmul(st_1,W[0]))
-            #  reset gate
-            r = tf.sigmoid(tf.matmul(x,U[1]) + tf.matmul(st_1,W[1]))
-            #  intermediate
-            h = tf.tanh(tf.matmul(x,U[2]) + tf.matmul( (r*st_1),W[1]))
-            ###
-            # new state
-            st = (1-z)*h + (z*st_1)
-            return st
         ##### 
         # build graph
         sys.stdout.write('\n<log> Building Graph...')
@@ -100,14 +103,14 @@ class GRU_rnn():
 
     ####
     # training
-    def train(self, train_set, epochs=20):
+    def train(self, train_set, epochs=100):
         # training session
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             train_loss = 0
             try:
                 for i in range(epochs):
-                    for j in range(1000):
+                    for j in range(100):
                         xs, ys = train_set.__next__()
                         batch_size = xs.shape[0]
                         _, train_loss_ = sess.run([self.train_op, self.loss], feed_dict = {
@@ -116,15 +119,15 @@ class GRU_rnn():
                                 self.init_state : np.zeros([batch_size, self.state_size])
                             })
                         train_loss += train_loss_
-                    print('[{}] loss : {}'.format(i,train_loss/1000))
+                    print('[{}] loss : {}'.format(i,train_loss/100))
                     train_loss = 0
             except KeyboardInterrupt:
                 print('interrupted by user at ' + str(i))
-                #
-                # training ends here; 
-                #  save checkpoint
-                saver = tf.train.Saver()
-                saver.save(sess, self.ckpt_path + self.model_name, global_step=i)
+            #
+            # training ends here; 
+            #  save checkpoint
+            saver = tf.train.Saver()
+            saver.save(sess, self.ckpt_path + self.model_name, global_step=i)
     ####
     # generate characters
     def generate(self, idx2w, w2idx, num_words=100):
@@ -199,7 +202,7 @@ if __name__ == '__main__':
     # to train or to generate?
     if args['train']:
         # get train set
-        train_set = utils.rand_batch_gen(X,Y,batch_size=BATCH_SIZE)
+        train_set = utils.rand_batch_gen(X, Y ,batch_size=BATCH_SIZE)
         #
         # start training
         model.train(train_set)
