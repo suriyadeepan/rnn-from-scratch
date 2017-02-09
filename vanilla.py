@@ -7,7 +7,9 @@ import utils
 import argparse
 import random
 
-
+####
+# disable logs
+tf.logging.set_verbosity(tf.logging.ERROR)
 #
 # checkpoint
 ckpt_path = 'ckpt/vanilla1/'
@@ -20,22 +22,19 @@ X, Y, idx2w, w2idx, seqlen = data.load_data('data/shakespeare/')
 hsize = 256
 num_classes = len(idx2w)
 state_size = hsize
+BATCH_SIZE = 128
 
 
 # step operation
 def step(hprev, x):
-    # reshape vectors to matrices
-    hprev = tf.reshape(hprev, [1, hsize])
-    x = tf.reshape(x, [1,state_size])
     # initializer
     xav_init = tf.contrib.layers.xavier_initializer
     # params
-    W = tf.get_variable('W', shape=[hsize, hsize], initializer=xav_init())
-    U = tf.get_variable('U', shape=[state_size, hsize], initializer=xav_init())
-    b = tf.get_variable('b', shape=[hsize], initializer=tf.constant_initializer(0.))
+    W = tf.get_variable('W', shape=[state_size, state_size], initializer=xav_init())
+    U = tf.get_variable('U', shape=[state_size, state_size], initializer=xav_init())
+    b = tf.get_variable('b', shape=[state_size], initializer=tf.constant_initializer(0.))
     # current hidden state
     h = tf.tanh(tf.matmul(hprev, W) + tf.matmul(x,U) + b)
-    h = tf.reshape(h, [hsize])
     return h
 
 # parse arguments
@@ -61,7 +60,7 @@ if __name__ == '__main__':
     # build graph
     tf.reset_default_graph()
     # inputs
-    xs_ = tf.placeholder(shape=[None], dtype=tf.int32)
+    xs_ = tf.placeholder(shape=[None, None], dtype=tf.int32)
     ys_ = tf.placeholder(shape=[None], dtype=tf.int32)
     #
     # embeddings
@@ -69,17 +68,25 @@ if __name__ == '__main__':
     rnn_inputs = tf.nn.embedding_lookup(embs, xs_)
     #
     # initial hidden state
-    init_state = tf.placeholder(shape=[hsize], dtype=tf.float32, name='initial_state')
+    init_state = tf.placeholder(shape=[None, state_size], dtype=tf.float32, name='initial_state')
     #
     # here comes the scan operation; wake up!
-    states = tf.scan(step, rnn_inputs, initializer=init_state) # tf.scan(fn, elems, initializer)
+    #   tf.scan(fn, elems, initializer)
+    states = tf.scan(step, 
+            tf.transpose(rnn_inputs, [1,0,2]),
+            initializer=init_state) 
     #
     # predictions
-    V = tf.get_variable('V', shape=[hsize, num_classes], 
+    V = tf.get_variable('V', shape=[state_size, num_classes], 
                         initializer=tf.contrib.layers.xavier_initializer())
     bo = tf.get_variable('bo', shape=[num_classes], 
                          initializer=tf.constant_initializer(0.))
-    logits = tf.matmul(states,V) + bo
+    #
+    # flatten states to 2d matrix for matmult with V
+    st_shp = tf.shape(states)
+    states_reshaped = tf.reshape(states, [st_shp[0] * st_shp[1], st_shp[2]])
+    logits = tf.matmul(states_reshaped, V) + bo
+
     last_state = states[-1]
     predictions = tf.nn.softmax(logits)
     #
@@ -94,22 +101,25 @@ if __name__ == '__main__':
         # training
         #  setup batches for training
         epochs = 10
-        train_set = utils.rand_batch_gen(X,Y,batch_size=1)
+        #
+        # set batch size
+        batch_size = BATCH_SIZE
+        train_set = utils.rand_batch_gen(X,Y,batch_size=batch_size)
         # training session
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             train_loss = 0
             try:
                 for i in range(epochs):
-                    for j in range(10000):
+                    for j in range(100):
                         xs, ys = train_set.__next__()
                         _, train_loss_ = sess.run([train_op, loss], feed_dict = {
-                                xs_ : xs.reshape([seqlen]),
-                                ys_ : ys.reshape([seqlen]),
-                                init_state : np.zeros([hsize])
+                                xs_ : xs,
+                                ys_ : ys.reshape([batch_size*seqlen]),
+                                init_state : np.zeros([batch_size, state_size])
                             })
                         train_loss += train_loss_
-                    print('[{}] loss : {}'.format(i,train_loss/10000))
+                    print('[{}] loss : {}'.format(i,train_loss/100))
                     train_loss = 0
             except KeyboardInterrupt:
                 print('interrupted by user at ' + str(i))
@@ -137,13 +147,17 @@ if __name__ == '__main__':
             # generate operation
             words = [current_word]
             state = None
+            # set batch_size to 1
+            batch_size = 1
             num_words = args['num_words'] if args['num_words'] else 111
             # enter the loop
             for i in range(num_words):
                 if state:
-                    feed_dict = {xs_ : [current_word], init_state : state_}
+                    feed_dict = { xs_ : np.array(current_word).reshape([1, 1]), 
+                            init_state : state_ }
                 else:
-                    feed_dict = {xs_ : [current_word], init_state : np.zeros([hsize])}
+                    feed_dict = { xs_ : np.array(current_word).reshape([1,1])
+                            , init_state : np.zeros([batch_size, state_size]) }
                 #
                 # forward propagation
                 preds, state_ = sess.run([predictions, last_state], feed_dict=feed_dict)

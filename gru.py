@@ -8,15 +8,16 @@ import random
 import argparse
 import sys
 
+BATCH_SIZE = 128
+
 class GRU_rnn():
 
-    def __init__(self, state_size, num_classes, seqlen,
+    def __init__(self, state_size, num_classes,
             ckpt_path='ckpt/gru1/',
             model_name='gru1'):
 
         self.state_size = state_size
         self.num_classes = num_classes
-        self.seqlen = seqlen
         self.ckpt_path = ckpt_path
         self.model_name = model_name
 
@@ -24,7 +25,7 @@ class GRU_rnn():
         def __graph__():
             tf.reset_default_graph()
             # inputs
-            xs_ = tf.placeholder(shape=[None], dtype=tf.int32)
+            xs_ = tf.placeholder(shape=[None, None], dtype=tf.int32)
             ys_ = tf.placeholder(shape=[None], dtype=tf.int32)
             #
             # embeddings
@@ -32,26 +33,36 @@ class GRU_rnn():
             rnn_inputs = tf.nn.embedding_lookup(embs, xs_)
             #
             # initial hidden state
-            init_state = tf.placeholder(shape=[state_size], dtype=tf.float32, name='initial_state')
+            init_state = tf.placeholder(shape=[None, state_size], dtype=tf.float32, name='initial_state')
             #
             # here comes the scan operation; wake up!
-            states = tf.scan(step, rnn_inputs, initializer=init_state) # tf.scan(fn, elems, initializer)
+            #   tf.scan(fn, elems, initializer)
+            states = tf.scan(step, 
+                    tf.transpose(rnn_inputs, [1,0,2]),
+                    initializer=init_state)
             #
             # predictions
             V = tf.get_variable('V', shape=[state_size, num_classes], 
                                 initializer=tf.contrib.layers.xavier_initializer())
             bo = tf.get_variable('bo', shape=[num_classes], 
                                  initializer=tf.constant_initializer(0.))
-            logits = tf.matmul(states,V) + bo
+            ####
+            # flatten states to 2d matrix for matmult with V
+            st_shp = tf.shape(states)
+            states_reshaped = tf.reshape(states, [st_shp[0] * st_shp[1], st_shp[2]])
+            logits = tf.matmul(states_reshaped, V) + bo
+            # 
+            # get last state
             last_state = states[-1]
-            predictions = tf.nn.softmax(logits)
+            # predictions
+            predictions = tf.reshape(tf.nn.softmax(logits), [st_shp[1], st_shp[0], num_classes])
             #
             # optimization
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys_)
             loss = tf.reduce_mean(losses)
             train_op = tf.train.AdamOptimizer(learning_rate=0.1).minimize(loss)
             #
-            # expose variables
+            # expose symbols
             self.xs_ = xs_
             self.ys_ = ys_
             self.loss = loss
@@ -62,9 +73,6 @@ class GRU_rnn():
         ####
         # step - GRU
         def step(st_1, x):
-            # reshape vectors to matrices
-            st_1 = tf.reshape(st_1, [1, self.state_size])
-            x = tf.reshape(x, [1,self.state_size])
             # initializer
             xav_init = tf.contrib.layers.xavier_initializer
             # params
@@ -83,7 +91,6 @@ class GRU_rnn():
             ###
             # new state
             st = (1-z)*h + (z*st_1)
-            st = tf.reshape(st, [self.state_size])
             return st
         ##### 
         # build graph
@@ -93,7 +100,7 @@ class GRU_rnn():
 
     ####
     # training
-    def train(self, train_set, epochs=1000):
+    def train(self, train_set, epochs=20):
         # training session
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
@@ -102,10 +109,11 @@ class GRU_rnn():
                 for i in range(epochs):
                     for j in range(1000):
                         xs, ys = train_set.__next__()
+                        batch_size = xs.shape[0]
                         _, train_loss_ = sess.run([self.train_op, self.loss], feed_dict = {
-                                self.xs_ : xs.reshape([self.seqlen]),
-                                self.ys_ : ys.reshape([self.seqlen]),
-                                self.init_state : np.zeros([self.state_size])
+                                self.xs_ : xs,
+                                self.ys_ : ys.flatten(),
+                                self.init_state : np.zeros([batch_size, self.state_size])
                             })
                         train_loss += train_loss_
                     print('[{}] loss : {}'.format(i,train_loss/1000))
@@ -141,9 +149,11 @@ class GRU_rnn():
             # enter the loop
             for i in range(num_words):
                 if state:
-                    feed_dict = {self.xs_ : [current_word], self.init_state : state_}
+                    feed_dict = {self.xs_ : np.array([current_word]).reshape([1,1]),
+                            self.init_state : state_}
                 else:
-                    feed_dict = {self.xs_ : [current_word], self.init_state : np.zeros([self.state_size])}
+                    feed_dict = {self.xs_ : np.array([current_word]).reshape([1,1]),
+                            self.init_state : np.zeros([1, self.state_size])}
                 #
                 # forward propagation
                 preds, state_ = sess.run([self.predictions, self.last_state], feed_dict=feed_dict)
@@ -185,11 +195,11 @@ if __name__ == '__main__':
     X, Y, idx2w, w2idx, seqlen = data.load_data('data/shakespeare/')
     #
     # create the model
-    model = GRU_rnn(state_size = 512, num_classes=len(idx2w), seqlen=seqlen)
+    model = GRU_rnn(state_size = 512, num_classes=len(idx2w))
     # to train or to generate?
     if args['train']:
         # get train set
-        train_set = utils.rand_batch_gen(X,Y,batch_size=1)
+        train_set = utils.rand_batch_gen(X,Y,batch_size=BATCH_SIZE)
         #
         # start training
         model.train(train_set)

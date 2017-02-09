@@ -3,7 +3,7 @@ EN_BLACKLIST = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~\''
 
 FILENAME = 'shakespeare.txt'
 
-VOCAB_SIZE = 16000
+VOCAB_SIZE = 12000
 
 SEQ_LEN = 10
 
