@@ -4,4 +4,6 @@ The objective is to build and train RNNs for dummy tasks, using Tensorflow's **s
 
 - [x] [Vanilla RNN](/vanilla.py)
 - [ ] GRU
+	- [x] Single layer GRU
+	- [ ] Stacked GRU
 - [ ] LSTM
