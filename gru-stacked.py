@@ -8,16 +8,17 @@ import random
 import argparse
 import sys
 
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 
 class GRU_rnn():
 
-    def __init__(self, state_size, num_classes,
-            ckpt_path='ckpt/gru1/',
-            model_name='gru1'):
+    def __init__(self, state_size, num_classes, num_layers,
+            ckpt_path='ckpt/gru2/',
+            model_name='gru2'):
 
         self.state_size = state_size
         self.num_classes = num_classes
+        self.num_layers = num_layers
         self.ckpt_path = ckpt_path
         self.model_name = model_name
 
@@ -33,35 +34,44 @@ class GRU_rnn():
             rnn_inputs = tf.nn.embedding_lookup(embs, xs_)
             #
             # initial hidden state
-            init_state = tf.placeholder(shape=[None, state_size], dtype=tf.float32, name='initial_state')
+            init_state = tf.placeholder(shape=[num_layers, None, state_size], dtype=tf.float32, name='initial_state')
             # initializer
             xav_init = tf.contrib.layers.xavier_initializer
             # params
-            W = tf.get_variable('W', shape=[3, self.state_size, self.state_size], initializer=xav_init())
-            U = tf.get_variable('U', shape=[3, self.state_size, self.state_size], initializer=xav_init())
-            b = tf.get_variable('b', shape=[self.state_size], initializer=tf.constant_initializer(0.))
+            W = tf.get_variable('W', shape=[num_layers, 3, self.state_size, self.state_size], initializer=xav_init())
+            U = tf.get_variable('U', shape=[num_layers, 3, self.state_size, self.state_size], initializer=xav_init())
+            b = tf.get_variable('b', shape=[num_layers, self.state_size], initializer=tf.constant_initializer(0.))
             ####
             # step - GRU
             def step(st_1, x):
-                ####
-                # GATES
-                #
-                #  update gate
-                z = tf.sigmoid(tf.matmul(x,U[0]) + tf.matmul(st_1,W[0]))
-                #  reset gate
-                r = tf.sigmoid(tf.matmul(x,U[1]) + tf.matmul(st_1,W[1]))
-                #  intermediate
-                h = tf.tanh(tf.matmul(x,U[2]) + tf.matmul( (r*st_1),W[1]))
-                ###
-                # new state
-                st = (1-z)*h + (z*st_1)
-                return st
+                # iterate through layers
+                st = []
+                inp = x
+                for i in range(num_layers):
+                    ####
+                    # GATES
+                    #
+                    #  update gate
+                    z = tf.sigmoid(tf.matmul(inp,U[i][0]) + tf.matmul(st_1[i],W[i][0]))
+                    #  reset gate
+                    r = tf.sigmoid(tf.matmul(inp,U[i][1]) + tf.matmul(st_1[i],W[i][1]))
+                    #  intermediate
+                    h = tf.tanh(tf.matmul(inp,U[i][2]) + tf.matmul( (r*st_1[i]),W[i][2]))
+                    ###
+                    # new state
+                    st_i = (1-z)*h + (z*st_1[i])
+                    inp = st_i
+                    st.append(st_i)
+                return tf.pack(st)
             ###
             # here comes the scan operation; wake up!
             #   tf.scan(fn, elems, initializer)
             states = tf.scan(step, 
                     tf.transpose(rnn_inputs, [1,0,2]),
                     initializer=init_state)
+            #### 
+            # get last state before reshape
+            last_state = states[-1]
             #
             # predictions
             V = tf.get_variable('V', shape=[state_size, num_classes], 
@@ -70,15 +80,10 @@ class GRU_rnn():
                                  initializer=tf.constant_initializer(0.))
             ####
             # transpose
-            states = tf.transpose(states, [1,0,2])
-            #st_shp = tf.shape(states)
+            states = tf.transpose(states, [1,2,0,3])[-1]
             # flatten states to 2d matrix for matmult with V
-            #states_reshaped = tf.reshape(states, [st_shp[0] * st_shp[1], st_shp[2]])
             states_reshaped = tf.reshape(states, [-1, state_size])
             logits = tf.matmul(states_reshaped, V) + bo
-            # 
-            # get last state
-            last_state = states[-1]
             # predictions
             predictions = tf.nn.softmax(logits) 
             #
@@ -110,16 +115,16 @@ class GRU_rnn():
             train_loss = 0
             try:
                 for i in range(epochs):
-                    for j in range(100):
+                    for j in range(300):
                         xs, ys = train_set.__next__()
                         batch_size = xs.shape[0]
                         _, train_loss_ = sess.run([self.train_op, self.loss], feed_dict = {
                                 self.xs_ : xs,
                                 self.ys_ : ys.flatten(),
-                                self.init_state : np.zeros([batch_size, self.state_size])
+                                self.init_state : np.zeros([self.num_layers, batch_size, self.state_size])
                             })
                         train_loss += train_loss_
-                    print('[{}] loss : {}'.format(i,train_loss/100))
+                    print('[{}] loss : {}'.format(i,train_loss/300))
                     train_loss = 0
             except KeyboardInterrupt:
                 print('interrupted by user at ' + str(i))
@@ -130,7 +135,7 @@ class GRU_rnn():
             saver.save(sess, self.ckpt_path + self.model_name, global_step=i)
     ####
     # generate characters
-    def generate(self, idx2w, w2idx, num_words=100, separator=' '):
+    def generate(self, idx2w, w2idx, num_words=100, div=' '):
         #
         # generate text
         random_init_word = random.choice(idx2w)
@@ -156,7 +161,7 @@ class GRU_rnn():
                             self.init_state : state_}
                 else:
                     feed_dict = {self.xs_ : np.array([current_word]).reshape([1,1]),
-                            self.init_state : np.zeros([1, self.state_size])}
+                            self.init_state : np.zeros([self.num_layers, 1, self.state_size])}
                 #
                 # forward propagation
                 preds, state_ = sess.run([self.predictions, self.last_state], feed_dict=feed_dict)
@@ -170,7 +175,7 @@ class GRU_rnn():
                 words.append(current_word)
         ########
         # return the list of words as string
-        return separator.join([idx2w[w] for w in words])
+        return div.join([idx2w[w] for w in words])
 
 ### 
 # parse arguments
@@ -198,7 +203,7 @@ if __name__ == '__main__':
     X, Y, idx2w, w2idx, seqlen = data.load_data('data/sms/')
     #
     # create the model
-    model = GRU_rnn(state_size = 128, num_classes=len(idx2w))
+    model = GRU_rnn(state_size = 512, num_classes=len(idx2w), num_layers=3)
     # to train or to generate?
     if args['train']:
         # get train set
@@ -210,7 +215,7 @@ if __name__ == '__main__':
         # call generate method
         text = model.generate(idx2w, w2idx, 
                 num_words=args['num_words'] if args['num_words'] else 100,
-                separator='')
+                div='')
         #########
         # text generation complete
         #
