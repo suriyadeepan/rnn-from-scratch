@@ -10,11 +10,11 @@ import sys
 
 BATCH_SIZE = 256
 
-class GRU_rnn():
+class LSTM_rnn():
 
     def __init__(self, state_size, num_classes,
-            ckpt_path='ckpt/gru1/',
-            model_name='gru1'):
+            ckpt_path='ckpt/lstm1/',
+            model_name='lstm1'):
 
         self.state_size = state_size
         self.num_classes = num_classes
@@ -33,29 +33,35 @@ class GRU_rnn():
             rnn_inputs = tf.nn.embedding_lookup(embs, xs_)
             #
             # initial hidden state
-            init_state = tf.placeholder(shape=[None, state_size], dtype=tf.float32, name='initial_state')
+            init_state = tf.placeholder(shape=[2, None, state_size], dtype=tf.float32, name='initial_state')
             # initializer
             xav_init = tf.contrib.layers.xavier_initializer
             # params
-            W = tf.get_variable('W', shape=[3, self.state_size, self.state_size], initializer=xav_init())
-            U = tf.get_variable('U', shape=[3, self.state_size, self.state_size], initializer=xav_init())
-            b = tf.get_variable('b', shape=[self.state_size], initializer=tf.constant_initializer(0.))
+            W = tf.get_variable('W', shape=[4, self.state_size, self.state_size], initializer=xav_init())
+            U = tf.get_variable('U', shape=[4, self.state_size, self.state_size], initializer=xav_init())
+            #b = tf.get_variable('b', shape=[self.state_size], initializer=tf.constant_initializer(0.))
             ####
-            # step - GRU
-            def step(st_1, x):
+            # step - LSTM
+            def step(prev, x):
+                # gather previous internal state and output state
+                st_1, ct_1 = tf.unpack(prev)
                 ####
                 # GATES
                 #
-                #  update gate
-                z = tf.sigmoid(tf.matmul(x,U[0]) + tf.matmul(st_1,W[0]))
-                #  reset gate
-                r = tf.sigmoid(tf.matmul(x,U[1]) + tf.matmul(st_1,W[1]))
-                #  intermediate
-                h = tf.tanh(tf.matmul(x,U[2]) + tf.matmul( (r*st_1),W[2]))
+                #  input gate
+                i = tf.sigmoid(tf.matmul(x,U[0]) + tf.matmul(st_1,W[0]))
+                #  forget gate
+                f = tf.sigmoid(tf.matmul(x,U[1]) + tf.matmul(st_1,W[1]))
+                #  output gate
+                o = tf.sigmoid(tf.matmul(x,U[2]) + tf.matmul(st_1,W[2]))
+                #  gate weights
+                g = tf.tanh(tf.matmul(x,U[3]) + tf.matmul(st_1,W[3]))
                 ###
-                # new state
-                st = (1-z)*h + (z*st_1)
-                return st
+                # new internal cell state
+                ct = ct_1*f + g*i
+                # output state
+                st = tf.tanh(ct)*o
+                return tf.pack([st, ct])
             ###
             # here comes the scan operation; wake up!
             #   tf.scan(fn, elems, initializer)
@@ -68,17 +74,19 @@ class GRU_rnn():
                                 initializer=xav_init())
             bo = tf.get_variable('bo', shape=[num_classes], 
                                  initializer=tf.constant_initializer(0.))
+
+            ####
+            # get last state before reshape/transpose
+            last_state = states[-1]
+
             ####
             # transpose
-            states = tf.transpose(states, [1,0,2])
+            states = tf.transpose(states, [1,2,0,3])[0]
             #st_shp = tf.shape(states)
             # flatten states to 2d matrix for matmult with V
             #states_reshaped = tf.reshape(states, [st_shp[0] * st_shp[1], st_shp[2]])
             states_reshaped = tf.reshape(states, [-1, state_size])
             logits = tf.matmul(states_reshaped, V) + bo
-            # 
-            # get last state
-            last_state = states[-1]
             # predictions
             predictions = tf.nn.softmax(logits) 
             #
@@ -116,7 +124,7 @@ class GRU_rnn():
                         _, train_loss_ = sess.run([self.train_op, self.loss], feed_dict = {
                                 self.xs_ : xs,
                                 self.ys_ : ys.flatten(),
-                                self.init_state : np.zeros([batch_size, self.state_size])
+                                self.init_state : np.zeros([2, batch_size, self.state_size])
                             })
                         train_loss += train_loss_
                     print('[{}] loss : {}'.format(i,train_loss/100))
@@ -156,7 +164,7 @@ class GRU_rnn():
                             self.init_state : state_}
                 else:
                     feed_dict = {self.xs_ : np.array([current_word]).reshape([1,1]),
-                            self.init_state : np.zeros([1, self.state_size])}
+                            self.init_state : np.zeros([2, 1, self.state_size])}
                 #
                 # forward propagation
                 preds, state_ = sess.run([self.predictions, self.last_state], feed_dict=feed_dict)
@@ -198,7 +206,7 @@ if __name__ == '__main__':
     X, Y, idx2w, w2idx, seqlen = data.load_data('data/sms/')
     #
     # create the model
-    model = GRU_rnn(state_size = 128, num_classes=len(idx2w))
+    model = LSTM_rnn(state_size = 128, num_classes=len(idx2w))
     # to train or to generate?
     if args['train']:
         # get train set
