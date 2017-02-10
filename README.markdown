@@ -8,4 +8,4 @@ The objective is to build and train RNNs for dummy tasks, using Tensorflow's **s
 	- [x] [Stacked GRU](/gru-stacked.py)
 - [x] LSTM
 	- [x] [Single layer LSTM](/lstm.py)
-	- [x] Stacked LSTM(/lstm-stacked.py)
+	- [x] [Stacked LSTM](/lstm-stacked.py)
