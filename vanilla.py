@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
-import data.shakespeare.datagen as data
+import data
 import utils
 
 import argparse
@@ -16,11 +16,12 @@ ckpt_path = 'ckpt/vanilla1/'
 #
 ###
 # get data
-X, Y, idx2w, w2idx, seqlen = data.load_data('data/shakespeare/')
+X, Y, idx2ch, ch2idx = data.load_data('data/paulg/')
 #
 # params
 hsize = 256
-num_classes = len(idx2w)
+num_classes = len(idx2ch)
+seqlen = X.shape[1]
 state_size = hsize
 BATCH_SIZE = 128
 
@@ -75,6 +76,10 @@ if __name__ == '__main__':
     states = tf.scan(step, 
             tf.transpose(rnn_inputs, [1,0,2]),
             initializer=init_state) 
+    ###
+    # set last state
+    last_state = states[-1]
+    states = tf.transpose(states, [1,0,2])
     #
     # predictions
     V = tf.get_variable('V', shape=[state_size, num_classes], 
@@ -83,11 +88,8 @@ if __name__ == '__main__':
                          initializer=tf.constant_initializer(0.))
     #
     # flatten states to 2d matrix for matmult with V
-    st_shp = tf.shape(states)
-    states_reshaped = tf.reshape(states, [st_shp[0] * st_shp[1], st_shp[2]])
+    states_reshaped = tf.reshape(states, [-1, state_size])
     logits = tf.matmul(states_reshaped, V) + bo
-
-    last_state = states[-1]
     predictions = tf.nn.softmax(logits)
     #
     # optimization
@@ -100,7 +102,7 @@ if __name__ == '__main__':
         # 
         # training
         #  setup batches for training
-        epochs = 10
+        epochs = 50
         #
         # set batch size
         batch_size = BATCH_SIZE
@@ -111,7 +113,7 @@ if __name__ == '__main__':
             train_loss = 0
             try:
                 for i in range(epochs):
-                    for j in range(100):
+                    for j in range(1000):
                         xs, ys = train_set.__next__()
                         _, train_loss_ = sess.run([train_op, loss], feed_dict = {
                                 xs_ : xs,
@@ -119,7 +121,7 @@ if __name__ == '__main__':
                                 init_state : np.zeros([batch_size, state_size])
                             })
                         train_loss += train_loss_
-                    print('[{}] loss : {}'.format(i,train_loss/100))
+                    print('[{}] loss : {}'.format(i,train_loss/1000))
                     train_loss = 0
             except KeyboardInterrupt:
                 print('interrupted by user at ' + str(i))
@@ -131,8 +133,8 @@ if __name__ == '__main__':
     elif args['generate']:
         #
         # generate text
-        random_init_word = random.choice(idx2w)
-        current_word = w2idx[random_init_word]
+        random_init_word = random.choice(idx2ch)
+        current_word = ch2idx[random_init_word]
         #
         # start session
         with tf.Session() as sess:
@@ -173,5 +175,5 @@ if __name__ == '__main__':
         # text generation complete
         #
         print('______Generated Text_______')
-        print(' '.join([idx2w[w] for w in words]))
+        print(''.join([idx2ch[w] for w in words]))
         print('___________________________')
