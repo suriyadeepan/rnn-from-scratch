@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 import utils
-import data.sms.datagen as data
+import data
 
 import random
 import argparse
@@ -71,9 +71,7 @@ class GRU_rnn():
             ####
             # transpose
             states = tf.transpose(states, [1,0,2])
-            #st_shp = tf.shape(states)
             # flatten states to 2d matrix for matmult with V
-            #states_reshaped = tf.reshape(states, [st_shp[0] * st_shp[1], st_shp[2]])
             states_reshaped = tf.reshape(states, [-1, state_size])
             logits = tf.matmul(states_reshaped, V) + bo
             # 
@@ -103,14 +101,14 @@ class GRU_rnn():
 
     ####
     # training
-    def train(self, train_set, epochs=100):
+    def train(self, train_set, epochs=50):
         # training session
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             train_loss = 0
             try:
                 for i in range(epochs):
-                    for j in range(100):
+                    for j in range(1000):
                         xs, ys = train_set.__next__()
                         batch_size = xs.shape[0]
                         _, train_loss_ = sess.run([self.train_op, self.loss], feed_dict = {
@@ -119,7 +117,7 @@ class GRU_rnn():
                                 self.init_state : np.zeros([batch_size, self.state_size])
                             })
                         train_loss += train_loss_
-                    print('[{}] loss : {}'.format(i,train_loss/100))
+                    print('[{}] loss : {}'.format(i,train_loss/1000))
                     train_loss = 0
             except KeyboardInterrupt:
                 print('interrupted by user at ' + str(i))
@@ -176,7 +174,7 @@ class GRU_rnn():
 # parse arguments
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Vanilla Recurrent Neural Network for Text Hallucination, built with tf.scan')
+        description='Gated Recurrent Unit RNN for Text Hallucination, built with tf.scan')
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('-g', '--generate', action='store_true',
                         help='generate text')
@@ -195,10 +193,11 @@ if __name__ == '__main__':
     args = parse_args()
     #
     # fetch data
-    X, Y, idx2w, w2idx, seqlen = data.load_data('data/sms/')
+    X, Y, idx2w, w2idx = data.load_data('data/paulg/')
+    seqlen = X.shape[1]
     #
     # create the model
-    model = GRU_rnn(state_size = 128, num_classes=len(idx2w))
+    model = GRU_rnn(state_size = 256, num_classes=len(idx2w))
     # to train or to generate?
     if args['train']:
         # get train set

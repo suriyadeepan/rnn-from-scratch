@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 import utils
-import data.sms.datagen as data
+import data
 
 import random
 import argparse
@@ -184,7 +184,7 @@ class LSTM_rnn():
 # parse arguments
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Vanilla Recurrent Neural Network for Text Hallucination, built with tf.scan')
+        description='Long Short Term Memory RNN for Text Hallucination, built with tf.scan')
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('-g', '--generate', action='store_true',
                         help='generate text')
@@ -203,10 +203,11 @@ if __name__ == '__main__':
     args = parse_args()
     #
     # fetch data
-    X, Y, idx2w, w2idx, seqlen = data.load_data('data/sms/')
+    X, Y, idx2w, w2idx = data.load_data('data/paulg/')
+    seqlen = X.shape[0]
     #
     # create the model
-    model = LSTM_rnn(state_size = 128, num_classes=len(idx2w))
+    model = LSTM_rnn(state_size = 512, num_classes=len(idx2w))
     # to train or to generate?
     if args['train']:
         # get train set

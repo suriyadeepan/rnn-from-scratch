@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 import utils
-import data.sms.datagen as data
+import data
 
 import random
 import argparse
@@ -130,7 +130,7 @@ class LSTM_rnn():
             train_loss = 0
             try:
                 for i in range(epochs):
-                    for j in range(400):
+                    for j in range(100):
                         xs, ys = train_set.__next__()
                         batch_size = xs.shape[0]
                         _, train_loss_ = sess.run([self.train_op, self.loss], feed_dict = {
@@ -139,7 +139,7 @@ class LSTM_rnn():
                                 self.init_state : np.zeros([2, self.num_layers, batch_size, self.state_size])
                             })
                         train_loss += train_loss_
-                    print('[{}] loss : {}'.format(i,train_loss/1000))
+                    print('[{}] loss : {}'.format(i,train_loss/100))
                     train_loss = 0
             except KeyboardInterrupt:
                 print('interrupted by user at ' + str(i))
@@ -196,7 +196,7 @@ class LSTM_rnn():
 # parse arguments
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Vanilla Recurrent Neural Network for Text Hallucination, built with tf.scan')
+        description='Stacked Long Short Term Memory RNN for Text Hallucination, built with tf.scan')
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('-g', '--generate', action='store_true',
                         help='generate text')
@@ -215,10 +215,11 @@ if __name__ == '__main__':
     args = parse_args()
     #
     # fetch data
-    X, Y, idx2w, w2idx, seqlen = data.load_data('data/sms/')
+    X, Y, idx2w, w2idx= data.load_data('data/paulg/')
+    seqlen = X.shape[0]
     #
     # create the model
-    model = LSTM_rnn(state_size = 256, num_classes=len(idx2w), num_layers=2)
+    model = LSTM_rnn(state_size = 512, num_classes=len(idx2w), num_layers=2)
     # to train or to generate?
     if args['train']:
         # get train set
