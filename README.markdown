@@ -1,5 +1,7 @@
 # RNN from Scratch
 
+Tutorial : [**Unfolding RNNs II** - Vanilla, GRU, LSTM RNNs from scratch in Tensorflow](http://suriyadeepan.github.io/2017-02-13-unfolding-rnn-2/)
+
 The objective is to build and train RNNs for dummy tasks, using Tensorflow's **scan** module.
 
 - [x] [Vanilla RNN](/vanilla.py)
